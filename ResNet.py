@@ -1,5 +1,5 @@
-import torch.nn as nn
 import math
+import torch.nn as nn
 import torch.utils.model_zoo as model_zoo
 from torch.nn import Parameter
 
@@ -197,7 +197,7 @@ def resnet101(pretrained=False, **kwargs):
     """
     model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
     if pretrained:
-        load_state_dict(model, model_zoo.load_url(model_urls['resnet101']))
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet101']))
     return model
 
 
