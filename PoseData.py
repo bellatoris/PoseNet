@@ -4,6 +4,7 @@ from PIL import Image
 import os
 import os.path
 import numpy as np
+import torch
 
 
 # dataset_train.txt로 부터 image path와 pose를 꺼내옴
@@ -14,14 +15,14 @@ def make_dataset(dir, train=True):
                               dtype=str, delimiter=' ', skip_header=3,
                               usecols=[0])
         poses = np.genfromtxt(os.path.join(dir, 'dataset_train.txt'),
-                              dtype=float, delimiter=' ', skip_header=3,
+                              dtype=np.float32, delimiter=' ', skip_header=3,
                               usecols=[1, 2, 3, 4, 5, 6, 7])
     else:
         paths = np.genfromtxt(os.path.join(dir, 'dataset_test.txt'),
                               dtype=str, delimiter=' ', skip_header=3,
                               usecols=[0])
         poses = np.genfromtxt(os.path.join(dir, 'dataset_test.txt'),
-                              dtype=float, delimiter=' ', skip_header=3,
+                              dtype=np.float32, delimiter=' ', skip_header=3,
                               usecols=[1, 2, 3, 4, 5, 6, 7])
 
     # order를 path의 이름순으로 정한다
@@ -59,8 +60,8 @@ class PoseData(data.Dataset):
         if self.target_transform is not None:
             target = self.target_transform(target)
 
+        target = torch.from_numpy(target)
         return img, target
 
     def __len__(self):
         return len(self.paths)
-

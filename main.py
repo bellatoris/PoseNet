@@ -1,4 +1,7 @@
 import shutil
+import progressbar
+import numpy as np
+import math
 
 import torch
 import torch.nn as nn
@@ -14,24 +17,36 @@ from PoseNet import PoseNet
 
 
 def main():
+    best_loss = 10000
+    start_epoch = 0
+
     # PoseNet의 모델로 resnet101을 사용
-    original_model = models.resnet101(pretrained=True)
+    original_model = models.resnet34(pretrained=True)
     # PoseNet 생성
     model = PoseNet(original_model)
     # model.features = torch.nn.DataParallel(model.features)
     model.cuda()
 
+    # for resume code
+    checkpoint = torch.load('model_best.pth.tar')
+    model.load_state_dict(checkpoint['state_dict'])
+    start_epoch = checkpoint['epoch']
+    best_loss = checkpoint['best_loss']
+
     cudnn.benchmark = True
 
     # Data loading code
     datadir = './dataset/KingsCollege'
+    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                     std=[0.229, 0.224, 0.225])
 
     train_loader = torch.utils.data.DataLoader(
         PoseData.PoseData(datadir, transforms.Compose([
             transforms.Scale(256),
             transforms.RandomCrop(224),
-            transforms.ToTensor()
-        ]), transforms.ToTensor(), train=True),
+            transforms.ToTensor(),
+            normalize
+        ]), train=True),
         batch_size=75, shuffle=True,
         num_workers=4, pin_memory=True)
 
@@ -39,60 +54,98 @@ def main():
         PoseData.PoseData(datadir, transforms.Compose([
             transforms.Scale(256),
             transforms.CenterCrop(224),
-            transforms.ToTensor()
-        ]), transforms.ToTensor(), train=False),
-        batch_size=75, shuffle=False,
+            transforms.ToTensor(),
+            normalize
+        ]), train=False),
+        batch_size=32, shuffle=False,
         num_workers=4, pin_memory=True)
 
-    # define loss function (criterion) and pptimizer
+    # define loss function (criterion) and optimizer
     criterion = nn.MSELoss().cuda()
 
-    optimizer = torch.optim.SGD(model.regressor.parameters(), 1e-5,
-                                momentum=0.9,)
+    # L1 loss
+    # l1_criterion = nn.L1Loss().cuda()
 
-    for epoch in range(80):
+    lr = 1e-4
+    # optimizer = torch.optim.SGD([{'params': model.features.parameters(), 'lr': lr},
+    #                              {'params': model.regressor.parameters(), 'lr': lr},
+    #                              {'params': model.trans_regressor.parameters(), 'lr': lr},
+    #                              {'params': model.rotation_regressor.parameters(), 'lr': lr}],
+    #                             momentum=0.9, weight_decay=1e-4)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=2e-4)
+
+    # validate(val_loader, model, l1_criterion)
+
+    for epoch in range(start_epoch, 160):
         adjust_learning_rate(optimizer, epoch)
 
         # train for one epoch
-        train(train_loader, model, criterion, optimizer, epoch)
+        # train(train_loader, model, criterion, optimizer, epoch)
 
         # evaluate on validation set
-        prec1 = validate(val_loader, model)
+        loss, trans_loss, rotation_loss = validate(val_loader, model, criterion)
 
-        # remember best prec@1 and save checkpoint
-        is_best = prec1 > best_prec1
-        best_prec1 = max(prec1, best_prec1)
+        # # remember best loss and save checkpoint
+        is_best = loss < best_loss
+        best_loss = min(loss, best_loss)
         save_checkpoint({
             'epoch': epoch + 1,
-            # 'arch': args.arch,
             'state_dict': model.state_dict(),
-            'best_prec1': best_prec1,
+            'best_loss': best_loss,
         }, is_best)
 
 
 def train(train_loader, model, criterion, optimizer, epoch):
+    losses = AverageMeter()
+    trans_losses = AverageMeter()
+    rotation_losses = AverageMeter()
+
     # switch to train mode
     model.train()
-    beta = 700
+    beta = 500
 
+    # bar = progressbar.ProgressBar(max_value=len(train_loader))
     for i, (input, target) in enumerate(train_loader):
         target = target.cuda()
         input_var = torch.autograd.Variable(input.cuda())
         target_var = torch.autograd.Variable(target)
 
         # compute output
-        output = model(input_var)
-        loss1 = criterion(output[:, 0:3], target_var[:, 0:3])
-        loss2 = criterion(output[:, 3:], target[:, 0:3])
-        loss = loss1 + beta * loss2
+        trans_output, rotation_output = model(input_var)
+        trans_loss = pose_loss(trans_output, target_var[:, 0:3])
+        rotation_loss = pose_loss(rotation_output, target_var[:, 3:]) * beta
+        loss = trans_loss + rotation_loss
+
+        # measure and record loss
+        losses.update(loss.data[0], input.size(0))
+        trans_losses.update(trans_loss.data[0], input.size(0))
+        rotation_losses.update(rotation_loss.data[0], input.size(0))
+
+        # compute gradient and do SGD step
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        print('Epoch: [{0}][{1}]\t'
+              'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+              'Trans Loss {trans_loss.val:.4f} ({trans_loss.avg:.4f})\t'
+              'Rotation Loss {rotation_loss.val:.4f} ({rotation_loss.avg:.4f})\t'.format(
+               epoch, len(train_loader), loss=losses,
+               trans_loss=trans_losses, rotation_loss=rotation_losses))
+
+        # bar.update(i)
 
 
-        print("hi")
+def validate(val_loader, model, criterion):
+    losses = AverageMeter()
+    trans_losses = AverageMeter()
+    rotation_losses = AverageMeter()
+    rotation_errors = AverageMeter()
 
-
-def validate(val_loader, model, criterion, optimizer, epoch):
     # switch to evaluate mode
     model.eval()
+    beta = 500
 
     for i, (input, target) in enumerate(val_loader):
         target = target.cuda()
@@ -100,11 +153,28 @@ def validate(val_loader, model, criterion, optimizer, epoch):
         target_var = torch.autograd.Variable(target)
 
         # compute output
-        output = model(input_var)
-        loss1 = criterion(output[:, 0:3])
+        trans_output, rotation_output = model(input_var)
+        trans_loss = pose_loss(trans_output, target_var[:, 0:3])
+        rotation_loss = pose_loss(rotation_output, target_var[:, 3:]) * beta
+        loss = trans_loss + rotation_loss
 
+        # measure and record loss
+        losses.update(loss.data[0], input.size(0))
+        trans_losses.update(trans_loss.data[0], input.size(0))
+        rotation_losses.update(rotation_loss.data[0], input.size(0))
+        rotation_errors.update(rotation_error(rotation_output, target_var[:, 3:]).data[0],
+                               input.size(0))
 
-    return loss1
+    print('Test: [{0}]\t'
+          'Loss ({loss.avg:.4f})\t'
+          'Trans Loss ({trans_loss.avg:.4f})\t'
+          'Rotation Loss ({rotation_loss.avg:.4f})\t'
+          'Rotation Error ({rotation_error.avg:.4f})\t'.format(
+           len(val_loader), loss=losses,
+           trans_loss=trans_losses, rotation_loss=rotation_losses,
+           rotation_error=rotation_errors))
+
+    return losses.avg, trans_losses.avg, rotation_losses.avg
 
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
@@ -115,9 +185,29 @@ def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
 
 def adjust_learning_rate(optimizer, epoch):
     """Sets the learning rate to the initial LR decayed by 10 every 80 epochs"""
-    lr = 1e-5 * (0.1 ** (epoch // 80))
+    lr = 1e-4 * (0.1 ** (epoch // 80))
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
+
+
+def pose_loss(input, target):
+    x = torch.norm(input-target, dim=1)
+    x = torch.mean(x)
+
+    return x
+
+
+def rotation_error(input, target):
+    x1 = torch.norm(input, dim=1)
+    x2 = torch.norm(target, dim=1)
+
+    x1 = torch.div(input, torch.stack((x1, x1, x1, x1), dim=1))
+    x2 = torch.div(target, torch.stack((x2, x2, x2, x2), dim=1))
+    d = torch.abs(torch.sum(x1 * x2, dim=1))
+    theta = 2 * torch.acos(d) * 180/math.pi
+    theta = torch.mean(theta)
+
+    return theta
 
 
 class AverageMeter(object):
