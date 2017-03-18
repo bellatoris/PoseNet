@@ -62,7 +62,7 @@ def default_loader(path):
 
 
 def make_rotation_matrix(base_rotation):
-    rotation_matrix = np.zeros((4, 4))
+    rotation_matrix = np.zeros((4, 4), dtype=np.float32)
     rotation_matrix[0, 0] = base_rotation[0]
     rotation_matrix[0, 1] = base_rotation[3]
     rotation_matrix[0, 2] = -base_rotation[2]
@@ -107,9 +107,8 @@ class SeqPoseData(data.Dataset):
         self.seq_length = seq_length
 
     def __getitem__(self, index):
-        target = []
-        imgs = []
-        base_pose = None
+        target = torch.zeros((self.seq_length, 7))
+        imgs = torch.zeros((self.seq_length, 3, 224, 224))
 
         # index 처리
         if self.paths[index].split("/")[1] != self.paths[index + self.seq_length].split("/")[1]:
@@ -122,24 +121,25 @@ class SeqPoseData(data.Dataset):
             if i == 0:
                 base_trans = pose[:3]
                 base_rotation = pose[3:]
-                rotation_matrix = make_inverse_rotation_matrix(base_rotation)
+                inverse_rotation_matrix = make_inverse_rotation_matrix(base_rotation)
             else:
                 trans = pose[:3] - base_trans
-                rotation = np.dot(rotation_matrix, pose[3:])
+                rotation = np.dot(inverse_rotation_matrix, pose[3:])
                 pose = np.hstack((trans, rotation))
-            target.append(pose)
 
-            # img
+            pose = torch.from_numpy(pose)
+            if self.target_transform is not None:
+                pose = self.target_transform(pose)
+
+            # get img
             path = self.paths[index + i]
             img_path = os.path.join(self.root, path)
-            imgs.append(self.loader(img_path))
-
+            img = self.loader(img_path)
             if self.transform is not None:
-                imgs[i] = self.transform(imgs[i])
-            if self.target_transform is not None:
-                target[i] = self.target_transform(target[i])
+                img = self.transform(img)
 
-            target[i] = torch.from_numpy(target[i])
+            target[i] = pose
+            imgs[i] = img
 
         return imgs, target
 

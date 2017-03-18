@@ -65,7 +65,3 @@ class PoseData(data.Dataset):
 
     def __len__(self):
         return len(self.paths)
-
-a = PoseData("./dataset/KingsCollege")
-for i in range(0, len(a)):
-    a.__getitem__(i)

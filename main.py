@@ -1,5 +1,4 @@
 import shutil
-import progressbar
 import numpy as np
 import math
 
@@ -100,7 +99,6 @@ def train(train_loader, model, optimizer, epoch):
     model.train()
     beta = 500
 
-    # bar = progressbar.ProgressBar(max_value=len(train_loader))
     for i, (input, target) in enumerate(train_loader):
         target = target.cuda()
         input_var = torch.autograd.Variable(input.cuda())
@@ -129,8 +127,6 @@ def train(train_loader, model, optimizer, epoch):
                epoch, len(train_loader), loss=losses,
                trans_loss=trans_losses, rotation_loss=rotation_losses))
 
-        # bar.update(i)
-
 
 def validate(val_loader, model):
     losses = AverageMeter()
@@ -144,8 +140,8 @@ def validate(val_loader, model):
 
     for i, (input, target) in enumerate(val_loader):
         target = target.cuda()
-        input_var = torch.autograd.Variable(input.cuda())
-        target_var = torch.autograd.Variable(target)
+        input_var = torch.autograd.Variable(input.cuda(), volatile=True)
+        target_var = torch.autograd.Variable(target, volatile=True)
 
         # compute output
         trans_output, rotation_output = model(input_var)
