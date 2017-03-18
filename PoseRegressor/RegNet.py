@@ -11,10 +11,10 @@ class RegNet(nn.Module):
         self.batch_size = batch_size
         self.seq_length = seq_length
         self.gru_layer = gru_layer
-        self.hidden = torch.autograd.Variable(torch.randn(1, batch_size, 512).cuda())
+        self.hidden = torch.autograd.Variable(torch.randn(gru_layer, batch_size, 512).cuda())
 
         # Fully connected GRU
-        self.rnn = nn.GRU(512, 512, gru_layer)
+        self.rnn = nn.GRU(512, 512, gru_layer, dropout=0.5)
 
         # pose regressor
         self.trans_regressor = nn.Sequential(
@@ -30,9 +30,7 @@ class RegNet(nn.Module):
 
         for m in self.trans_regressor.modules():
             if isinstance(m, nn.Linear):
-                m.weight.data[0].normal_(0, 0.02)
-                m.weight.data[1].normal_(0, 0.02)
-                m.weight.data[2].normal_(0, 0.01)
+                m.weight.data.normal_(0, 0.001)
                 m.bias.data.zero_()
 
         for m in self.rotation_regressor.modules():

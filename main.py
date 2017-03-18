@@ -47,7 +47,7 @@ def main():
             normalize
         ]), train=True),
         batch_size=75, shuffle=True,
-        num_workers=4, pin_memory=True)
+        num_workers=8, pin_memory=True)
 
     val_loader = torch.utils.data.DataLoader(
         PoseData.PoseData(datadir, transforms.Compose([
@@ -56,19 +56,14 @@ def main():
             transforms.ToTensor(),
             normalize
         ]), train=False),
-        batch_size=32, shuffle=False,
-        num_workers=4, pin_memory=True)
+        batch_size=75, shuffle=False,
+        num_workers=8, pin_memory=True)
 
     lr = 1e-4
-    # optimizer = torch.optim.SGD([{'params': model.features.parameters(), 'lr': lr},
-    #                              {'params': model.regressor.parameters(), 'lr': lr},
-    #                              {'params': model.trans_regressor.parameters(), 'lr': lr},
-    #                              {'params': model.rotation_regressor.parameters(), 'lr': lr}],
-    #                             momentum=0.9, weight_decay=1e-4)
-
-    optimizer = torch.optim.Adam([{'params': model.regressor.parameters(), 'lr': lr},
-                                 {'params': model.trans_regressor.parameters(), 'lr': lr},
-                                 {'params': model.rotation_regressor.parameters(), 'lr': lr}],
+    optimizer = torch.optim.Adam([{'params': model.features.parameters(), 'lr': lr},
+                                  {'params': model.regressor.parameters(), 'lr': lr},
+                                  {'params': model.trans_regressor.parameters(), 'lr': lr},
+                                  {'params': model.rotation_regressor.parameters(), 'lr': lr}],
                                  weight_decay=2e-4)
 
     for epoch in range(start_epoch, 160):

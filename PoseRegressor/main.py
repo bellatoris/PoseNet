@@ -19,17 +19,17 @@ from PoseRegressor.RegNet import RegNet
 def main():
     best_loss = 10000
     start_epoch = 0
-    train_batch_size = 32
+    batch_size = 32
 
     # PoseNet의 모델로 resne34을 사용
     original_model = models.resnet34(pretrained=True)
     # PoseNet 생성
-    model = RegNet(original_model, batch_size=train_batch_size, seq_length=5, gru_layer=1)
+    model = RegNet(original_model, batch_size=batch_size, seq_length=5, gru_layer=1)
     # model.features = torch.nn.DataParallel(model.features)
     model.cuda()
 
     # for resume code
-    # checkpoint = torch.load('reg_checkpoint.pth.tar-Res34')
+    # checkpoint = torch.load('reg_checkpoint.pth.tar')
     # model.load_state_dict(checkpoint['state_dict'])
     # start_epoch = checkpoint['epoch']
     # best_loss = checkpoint['best_loss']
@@ -49,7 +49,7 @@ def main():
             transforms.ToTensor(),
             normalize
         ]), train=True),
-        batch_size=train_batch_size, shuffle=True,
+        batch_size=batch_size, shuffle=True,
         num_workers=8, pin_memory=True)
 
     val_loader = torch.utils.data.DataLoader(
@@ -59,12 +59,12 @@ def main():
             transforms.ToTensor(),
             normalize
         ]), train=False),
-        batch_size=train_batch_size, shuffle=False,
+        batch_size=batch_size, shuffle=False,
         num_workers=8, pin_memory=True)
 
     lr = 1e-4
-    optimizer = torch.optim.Adam([{'params': model.rnn.parameters(), 'lr': lr},
-                                  {'params': model.features.parameters(), 'lr': lr},
+    optimizer = torch.optim.Adam([{'params': model.features.parameters(), 'lr': lr},
+                                  {'params': model.rnn.parameters(), 'lr': lr},
                                   {'params': model.trans_regressor.parameters(), 'lr': lr},
                                   {'params': model.rotation_regressor.parameters(), 'lr': lr}],
                                  weight_decay=2e-4)
@@ -73,10 +73,10 @@ def main():
         adjust_learning_rate(optimizer, epoch)
 
         # train for one epoch
-        train(train_loader, model, optimizer, epoch, train_batch_size)
+        train(train_loader, model, optimizer, epoch, batch_size)
 
         # evaluate on validation set
-        loss, trans_loss, rotation_loss = validate(val_loader, model, train_batch_size)
+        loss, trans_loss, rotation_loss = validate(val_loader, model, batch_size)
 
         # remember best loss and save checkpoint
         is_best = loss < best_loss
@@ -97,23 +97,23 @@ def train(train_loader, model, optimizer, epoch, batch_size):
 
     # switch to train mode
     model.train()
-    beta = 100
+    beta = 50
 
     end = time.time()
     for i, (input, target) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
 
-        # because of gru we need to fix the batch_size
+        # because of GRU we need to fix the batch_size
         if input.size(0) != batch_size:
             continue
         input_var = torch.autograd.Variable(input.cuda())
         target_var = torch.autograd.Variable(target.cuda())
 
         # compute output
-        trans_output, rotation_output = model(input_var)
-        trans_loss = pose_loss(trans_output, target_var[:, 4, :3]) * 10
-        rotation_loss = pose_loss(rotation_output, target_var[:, 4, 3:]) * beta
+        output = model(input_var)
+        trans_loss = pose_loss(output[0], target_var[:, 4, :3])
+        rotation_loss = pose_loss(output[1], target_var[:, 4, 3:]) * beta
         loss = trans_loss + rotation_loss
 
         # measure and record loss
@@ -149,7 +149,7 @@ def validate(val_loader, model, batch_size):
 
     # switch to evaluate mode
     model.eval()
-    beta = 10
+    beta = 50
 
     for i, (input, target) in enumerate(val_loader):
         if input.size(0) != batch_size:
@@ -158,26 +158,26 @@ def validate(val_loader, model, batch_size):
         target_var = torch.autograd.Variable(target.cuda(), volatile=True)
 
         # compute output
-        trans_output, rotation_output = model(input_var)
-        trans_loss = pose_loss(trans_output, target_var[:, 4, 0:3])
-        rotation_loss = pose_loss(rotation_output, target_var[:, 4, 3:]) * beta
+        output = model(input_var)
+        trans_loss = pose_loss(output[0], target_var[:, 4, :3])
+        rotation_loss = pose_loss(output[1], target_var[:, 4, 3:]) * beta
         loss = trans_loss + rotation_loss
 
         # measure and record loss
         losses.update(loss.data[0], input.size(0))
         trans_losses.update(trans_loss.data[0], input.size(0))
         rotation_losses.update(rotation_loss.data[0], input.size(0))
-        rotation_errors.update(rotation_error(rotation_output, target_var[:, 4, 3:]).data[0],
+        rotation_errors.update(rotation_error(output[1], target_var[:, 4, 3:]).data[0],
                                input.size(0))
 
-    print('Test: [{0}]\t'
-          'Loss ({loss.avg:.4f})\t'
-          'Trans Loss ({trans_loss.avg:.4f})\t'
-          'Rotation Loss ({rotation_loss.avg:.4f})\t'
-          'Rotation Error ({rotation_error.avg:.4f})\t'.format(
-           len(val_loader), loss=losses,
-           trans_loss=trans_losses, rotation_loss=rotation_losses,
-           rotation_error=rotation_errors))
+        print('Test: [{0}/{1}]\t'
+              'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+              'Trans Loss {trans_loss.val:.4f} ({trans_loss.avg:.4f})\t'
+              'Rotation Loss {rotation_loss.val:.4f} ({rotation_loss.avg:.4f})\t'
+              'Rotation Error {rotation_error.val:.4f} ({rotation_error.avg:.4f})\t'.format(
+               i, len(val_loader), loss=losses,
+               trans_loss=trans_losses, rotation_loss=rotation_losses,
+               rotation_error=rotation_errors))
 
     return losses.avg, trans_losses.avg, rotation_losses.avg
 
@@ -190,7 +190,7 @@ def save_checkpoint(state, is_best, filename='reg_checkpoint.pth.tar'):
 
 def adjust_learning_rate(optimizer, epoch):
     """Sets the learning rate to the initial LR decayed by 10 every 80 epochs"""
-    lr = 1e-4 * (0.1 ** (epoch // 80))
+    lr = 1e-4 * (0.1 ** (epoch // 50))
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
