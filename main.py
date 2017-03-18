@@ -20,7 +20,7 @@ def main():
     best_loss = 10000
     start_epoch = 0
 
-    # PoseNet의 모델로 resnet101을 사용
+    # PoseNet의 모델로 resne34을 사용
     original_model = models.resnet34(pretrained=True)
     # PoseNet 생성
     model = PoseNet(original_model)
@@ -28,10 +28,10 @@ def main():
     model.cuda()
 
     # for resume code
-    checkpoint = torch.load('model_best.pth.tar')
-    model.load_state_dict(checkpoint['state_dict'])
-    start_epoch = checkpoint['epoch']
-    best_loss = checkpoint['best_loss']
+    # checkpoint = torch.load('model_best.pth.tar-Res34')
+    # model.load_state_dict(checkpoint['state_dict'])
+    # start_epoch = checkpoint['epoch']
+    # best_loss = checkpoint['best_loss']
 
     cudnn.benchmark = True
 
@@ -60,12 +60,6 @@ def main():
         batch_size=32, shuffle=False,
         num_workers=4, pin_memory=True)
 
-    # define loss function (criterion) and optimizer
-    criterion = nn.MSELoss().cuda()
-
-    # L1 loss
-    # l1_criterion = nn.L1Loss().cuda()
-
     lr = 1e-4
     # optimizer = torch.optim.SGD([{'params': model.features.parameters(), 'lr': lr},
     #                              {'params': model.regressor.parameters(), 'lr': lr},
@@ -73,20 +67,21 @@ def main():
     #                              {'params': model.rotation_regressor.parameters(), 'lr': lr}],
     #                             momentum=0.9, weight_decay=1e-4)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=2e-4)
-
-    # validate(val_loader, model, l1_criterion)
+    optimizer = torch.optim.Adam([{'params': model.regressor.parameters(), 'lr': lr},
+                                 {'params': model.trans_regressor.parameters(), 'lr': lr},
+                                 {'params': model.rotation_regressor.parameters(), 'lr': lr}],
+                                 weight_decay=2e-4)
 
     for epoch in range(start_epoch, 160):
         adjust_learning_rate(optimizer, epoch)
 
         # train for one epoch
-        # train(train_loader, model, criterion, optimizer, epoch)
+        train(train_loader, model, optimizer, epoch)
 
         # evaluate on validation set
-        loss, trans_loss, rotation_loss = validate(val_loader, model, criterion)
+        loss, trans_loss, rotation_loss = validate(val_loader, model)
 
-        # # remember best loss and save checkpoint
+        # remember best loss and save checkpoint
         is_best = loss < best_loss
         best_loss = min(loss, best_loss)
         save_checkpoint({
@@ -96,7 +91,7 @@ def main():
         }, is_best)
 
 
-def train(train_loader, model, criterion, optimizer, epoch):
+def train(train_loader, model, optimizer, epoch):
     losses = AverageMeter()
     trans_losses = AverageMeter()
     rotation_losses = AverageMeter()
@@ -137,7 +132,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
         # bar.update(i)
 
 
-def validate(val_loader, model, criterion):
+def validate(val_loader, model):
     losses = AverageMeter()
     trans_losses = AverageMeter()
     rotation_losses = AverageMeter()
