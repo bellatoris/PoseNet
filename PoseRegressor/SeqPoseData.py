@@ -73,15 +73,15 @@ def default_loader(path):
 def make_spatial_rotation_matrix(br):
     spatial_rotation_matrix = np.zeros((3, 3), dtype=np.float32)
     spatial_rotation_matrix[0, 0] = 1 - 2 * np.square(br[2]) - 2 * np.square(br[3])
-    spatial_rotation_matrix[0, 1] = 2 * (br[1]*br[2] + br[3]*br[0])
-    spatial_rotation_matrix[0, 2] = 2 * (br[1]*br[3] - br[2]*br[0])
+    spatial_rotation_matrix[0, 1] = 2 * (br[1]*br[2] - br[3]*br[0])
+    spatial_rotation_matrix[0, 2] = 2 * (br[1]*br[3] + br[2]*br[0])
 
-    spatial_rotation_matrix[1, 0] = 2 * (br[1]*br[2] - br[3]*br[0])
+    spatial_rotation_matrix[1, 0] = 2 * (br[1]*br[2] + br[3]*br[0])
     spatial_rotation_matrix[1, 1] = 1 - 2 * np.square(br[1]) - 2 * np.square(br[3])
-    spatial_rotation_matrix[1, 2] = 2 * (br[2]*br[3] + br[1]*br[0])
+    spatial_rotation_matrix[1, 2] = 2 * (br[2]*br[3] - br[1]*br[0])
 
-    spatial_rotation_matrix[2, 0] = 2 * (br[1]*br[3] + br[2]*br[0])
-    spatial_rotation_matrix[2, 1] = 2 * (br[2]*br[3] - br[1]*br[0])
+    spatial_rotation_matrix[2, 0] = 2 * (br[1]*br[3] - br[2]*br[0])
+    spatial_rotation_matrix[2, 1] = 2 * (br[2]*br[3] + br[1]*br[0])
     spatial_rotation_matrix[2, 2] = 1 - 2 * np.square(br[1]) - 2 * np.square(br[2])
 
     return spatial_rotation_matrix
@@ -96,17 +96,17 @@ def make_rotation_matrix(base_rotation):
 
     rotation_matrix[1, 0] = base_rotation[1]
     rotation_matrix[1, 1] = base_rotation[0]
-    rotation_matrix[1, 2] = base_rotation[3]
-    rotation_matrix[1, 3] = -base_rotation[2]
+    rotation_matrix[1, 2] = -base_rotation[3]
+    rotation_matrix[1, 3] = base_rotation[2]
 
     rotation_matrix[2, 0] = base_rotation[2]
-    rotation_matrix[2, 1] = -base_rotation[3]
+    rotation_matrix[2, 1] = base_rotation[3]
     rotation_matrix[2, 2] = base_rotation[0]
-    rotation_matrix[2, 3] = base_rotation[1]
+    rotation_matrix[2, 3] = -base_rotation[1]
 
     rotation_matrix[3, 0] = base_rotation[3]
-    rotation_matrix[3, 1] = base_rotation[2]
-    rotation_matrix[3, 2] = -base_rotation[1]
+    rotation_matrix[3, 1] = -base_rotation[2]
+    rotation_matrix[3, 2] = base_rotation[1]
     rotation_matrix[3, 3] = base_rotation[0]
 
     return rotation_matrix

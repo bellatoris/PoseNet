@@ -20,11 +20,12 @@ def main():
     best_loss = 10000
     start_epoch = 0
     batch_size = 32
+    seq_length = 5
 
     # PoseNet의 모델로 resne34을 사용
     original_model = models.resnet34(pretrained=True)
     # PoseNet 생성
-    model = RegNet(original_model, batch_size=batch_size, seq_length=5, gru_layer=1)
+    model = RegNet(original_model, batch_size=batch_size, seq_length=seq_length, gru_layer=1)
     # model.features = torch.nn.DataParallel(model.features)
     model.cuda()
 
@@ -43,7 +44,7 @@ def main():
 
     # train data loader, random cropping and scaling, shuffling
     train_loader = torch.utils.data.DataLoader(
-        SeqPoseData(datadir, seq_length=5, transform=transforms.Compose([
+        SeqPoseData(datadir, seq_length=seq_length, transform=transforms.Compose([
             transforms.Scale(256),
             transforms.RandomCrop(224),
             transforms.ToTensor(),
@@ -53,7 +54,7 @@ def main():
         num_workers=8, pin_memory=True)
 
     val_loader = torch.utils.data.DataLoader(
-        SeqPoseData(datadir, seq_length=5, transform=transforms.Compose([
+        SeqPoseData(datadir, seq_length=seq_length, transform=transforms.Compose([
             transforms.Scale(256),
             transforms.CenterCrop(224),
             transforms.ToTensor(),
@@ -64,6 +65,7 @@ def main():
 
     lr = 1e-4
     optimizer = torch.optim.Adam([{'params': model.features.parameters(), 'lr': lr},
+                                  # {'params': model.features2.parameters(), 'lr': lr},
                                   {'params': model.rnn.parameters(), 'lr': lr},
                                   {'params': model.trans_regressor.parameters(), 'lr': lr},
                                   {'params': model.rotation_regressor.parameters(), 'lr': lr}],
@@ -73,7 +75,7 @@ def main():
         adjust_learning_rate(optimizer, epoch)
 
         # train for one epoch
-        train(train_loader, model, optimizer, epoch, batch_size)
+        #train(train_loader, model, optimizer, epoch, batch_size)
 
         # evaluate on validation set
         loss, trans_loss, rotation_loss = validate(val_loader, model, batch_size)
