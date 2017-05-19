@@ -21,7 +21,9 @@ def make_dataset(dir, train=True):
     # 한번에 다 담아야 함
     for target in os.listdir(dir):
         target_dir = os.path.join(dir, target)
-        if not os.path.isdir(target_dir) or target == "Street" or target == "GreatCourt":
+        # if not os.path.isdir(target_dir) or target == "Street" or target == "GreatCourt":
+        # if not os.path.isdir(target_dir):
+        if not target == "KingsCollege":
             continue
 
         # 두번 읽어야 해서 비효율 적임 창현씨랑 고민해 볼 것
@@ -119,6 +121,12 @@ def make_inverse_rotation_matrix(base_rotation):
     return make_rotation_matrix(inverse_rotation)
 
 
+def normalize_pose(pose):
+    norm = np.linalg.norm(pose[:3])
+    trans = np.hstack((pose[:3] / norm, norm))
+    return np.hstack((trans, pose[3:]))
+
+
 class SeqPoseData(data.Dataset):
     def __init__(self, root, seq_length=5, transform=None, target_transform=None,
                  loader=default_loader, train=True):
@@ -132,14 +140,15 @@ class SeqPoseData(data.Dataset):
         self.loader = loader
         self.seq_length = seq_length
         self.train = train
+        self.rand_range = 10
 
     def __getitem__(self, index):
-        target = torch.zeros((self.seq_length, 7))
+        target = torch.zeros((self.seq_length, 8))
         imgs = torch.zeros((self.seq_length, 3, 224, 224))
 
         # index 처리
         while self.paths[index].split("/")[1] !=\
-                self.paths[index+(self.seq_length-1)*4].split("/")[1]:
+                self.paths[index+(self.seq_length - 1) * self.rand_range].split("/")[1]:
             index -= self.seq_length
 
         rand_index = index
@@ -159,12 +168,17 @@ class SeqPoseData(data.Dataset):
                 # r_ao
                 inv_spatial_rot_mat = spatial_rot_mat.transpose()
             else:
+                if np.sum(base_trans - pose[:3]) == 0:
+                    rand_index += 1
+                    pose = self.poses[rand_index]
+
                 # r_ao * (p_ob - p_oa) = p_ab at a coordinate
                 trans = np.dot(inv_spatial_rot_mat, pose[:3] - base_trans)
                 # q_ao * q_ob = q_ab at a coordinate
                 rotation = np.dot(inv_rot_mat, pose[3:])
                 pose = np.hstack((trans, rotation))
 
+            pose = normalize_pose(pose)
             pose = torch.from_numpy(pose)
             if self.target_transform is not None:
                 pose = self.target_transform(pose)
@@ -180,7 +194,7 @@ class SeqPoseData(data.Dataset):
             imgs[i] = img
 
             if self.train:
-                rand_index = rand_index + random.randrange(1, 5)
+                rand_index = rand_index + random.randrange(2, self.rand_range)
             else:
                 rand_index += 1
 
@@ -188,5 +202,5 @@ class SeqPoseData(data.Dataset):
 
     def __len__(self):
         # index 처리
-        return len(self.paths) - (self.seq_length - 1) * 4
+        return len(self.paths) - (self.seq_length - 1) * self.rand_range
 

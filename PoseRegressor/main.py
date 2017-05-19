@@ -12,15 +12,15 @@ import torch.utils.data
 import torchvision.models as models
 import torchvision.transforms as transforms
 
-from PoseRegressor.SeqPoseData import SeqPoseData
-from PoseRegressor.RegNet import RegNet
+from SeqPoseData import SeqPoseData
+from RegNet import RegNet
 
 
 def main():
     best_loss = 10000
     start_epoch = 0
-    batch_size = 32
-    seq_length = 5
+    batch_size = 64
+    seq_length = 2
 
     # PoseNet의 모델로 resne34을 사용
     original_model = models.resnet34(pretrained=True)
@@ -30,10 +30,10 @@ def main():
     model.cuda()
 
     # for resume code
-    # checkpoint = torch.load('reg_checkpoint.pth.tar')
-    # model.load_state_dict(checkpoint['state_dict'])
-    # start_epoch = checkpoint['epoch']
-    # best_loss = checkpoint['best_loss']
+    checkpoint = torch.load('reg_checkpoint.pth.tar')
+    model.load_state_dict(checkpoint['state_dict'])
+    start_epoch = checkpoint['epoch']
+    best_loss = checkpoint['best_loss']
 
     cudnn.benchmark = True
 
@@ -63,11 +63,13 @@ def main():
         batch_size=batch_size, shuffle=False,
         num_workers=8, pin_memory=True)
 
-    lr = 1e-4
+    lr = 1e-3
     optimizer = torch.optim.Adam([{'params': model.features.parameters(), 'lr': lr},
                                   # {'params': model.features2.parameters(), 'lr': lr},
-                                  {'params': model.rnn.parameters(), 'lr': lr},
+                                  # {'params': model.rnn.parameters(), 'lr': lr},
+                                  {'params': model.regressor.parameters(), 'lr': lr},
                                   {'params': model.trans_regressor.parameters(), 'lr': lr},
+                                  {'params': model.scale_regressor.parameters(), 'lr': lr},
                                   {'params': model.rotation_regressor.parameters(), 'lr': lr}],
                                  weight_decay=2e-4)
 
@@ -75,10 +77,11 @@ def main():
         adjust_learning_rate(optimizer, epoch)
 
         # train for one epoch
-        #train(train_loader, model, optimizer, epoch, batch_size)
+        train(train_loader, model, optimizer, epoch, batch_size, seq_length)
 
         # evaluate on validation set
-        loss, trans_loss, rotation_loss = validate(val_loader, model, batch_size)
+        loss, trans_loss, scale_losses, rotation_loss = validate(val_loader, model,
+                                                                 batch_size, seq_length)
 
         # remember best loss and save checkpoint
         is_best = loss < best_loss
@@ -90,11 +93,12 @@ def main():
         }, is_best)
 
 
-def train(train_loader, model, optimizer, epoch, batch_size):
+def train(train_loader, model, optimizer, epoch, batch_size, seq_length):
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
     trans_losses = AverageMeter()
+    scale_losses = AverageMeter()
     rotation_losses = AverageMeter()
 
     # switch to train mode
@@ -106,7 +110,7 @@ def train(train_loader, model, optimizer, epoch, batch_size):
         # measure data loading time
         data_time.update(time.time() - end)
 
-        # because of GRU we need to fix the batch_size
+        # because of GRU, we need to fix the batch_size
         if input.size(0) != batch_size:
             continue
         input_var = torch.autograd.Variable(input.cuda())
@@ -114,13 +118,15 @@ def train(train_loader, model, optimizer, epoch, batch_size):
 
         # compute output
         output = model(input_var)
-        trans_loss = pose_loss(output[0], target_var[:, 4, :3])
-        rotation_loss = pose_loss(output[1], target_var[:, 4, 3:]) * beta
-        loss = trans_loss + rotation_loss
+        trans_loss = pose_loss(output[0], target_var[:, seq_length - 1, :3]) * beta
+        scale_loss = pose_loss(output[1], target_var[:, seq_length - 1, 3])
+        rotation_loss = pose_loss(output[2], target_var[:, seq_length - 1, 4:]) * beta
+        loss = trans_loss + scale_loss + rotation_loss
 
         # measure and record loss
         losses.update(loss.data[0], input.size(0))
         trans_losses.update(trans_loss.data[0], input.size(0))
+        scale_losses.update(scale_loss.data[0], input.size(0))
         rotation_losses.update(rotation_loss.data[0], input.size(0))
 
         # compute gradient and do SGD step
@@ -137,15 +143,17 @@ def train(train_loader, model, optimizer, epoch, batch_size):
               'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
               'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
               'Trans Loss {trans_loss.val:.4f} ({trans_loss.avg:.4f})\t'
+              'Scale Loss {scale_loss.val:.4f} ({scale_loss.avg:.4f})\t'
               'Rotation Loss {rotation_loss.val:.4f} ({rotation_loss.avg:.4f})\t'.format(
                epoch, i, len(train_loader), batch_time=batch_time,
                loss=losses, data_time=data_time, trans_loss=trans_losses,
-               rotation_loss=rotation_losses))
+               scale_loss=scale_losses, rotation_loss=rotation_losses))
 
 
-def validate(val_loader, model, batch_size):
+def validate(val_loader, model, batch_size, seq_length):
     losses = AverageMeter()
     trans_losses = AverageMeter()
+    scale_losses = AverageMeter()
     rotation_losses = AverageMeter()
     rotation_errors = AverageMeter()
 
@@ -161,27 +169,30 @@ def validate(val_loader, model, batch_size):
 
         # compute output
         output = model(input_var)
-        trans_loss = pose_loss(output[0], target_var[:, 4, :3])
-        rotation_loss = pose_loss(output[1], target_var[:, 4, 3:]) * beta
-        loss = trans_loss + rotation_loss
+        trans_loss = pose_loss(output[0], target_var[:, seq_length - 1, :3]) * beta
+        scale_loss = pose_loss(output[1], target_var[:, seq_length - 1, 3])
+        rotation_loss = pose_loss(output[2], target_var[:, seq_length - 1, 4:]) * beta
+        loss = trans_loss + scale_loss + rotation_loss
 
         # measure and record loss
         losses.update(loss.data[0], input.size(0))
         trans_losses.update(trans_loss.data[0], input.size(0))
+        scale_losses.update(scale_loss.data[0], input.size(0))
         rotation_losses.update(rotation_loss.data[0], input.size(0))
-        rotation_errors.update(rotation_error(output[1], target_var[:, 4, 3:]).data[0],
+        rotation_errors.update(rotation_error(output[2], target_var[:, seq_length - 1, 4:]).data[0],
                                input.size(0))
 
         print('Test: [{0}/{1}]\t'
               'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
               'Trans Loss {trans_loss.val:.4f} ({trans_loss.avg:.4f})\t'
+              'Scale Loss {scale_loss.val:.4f} ({scale_loss.avg:.4f})\t'
               'Rotation Loss {rotation_loss.val:.4f} ({rotation_loss.avg:.4f})\t'
               'Rotation Error {rotation_error.val:.4f} ({rotation_error.avg:.4f})\t'.format(
                i, len(val_loader), loss=losses,
-               trans_loss=trans_losses, rotation_loss=rotation_losses,
-               rotation_error=rotation_errors))
+               trans_loss=trans_losses, scale_loss=scale_losses,
+               rotation_loss=rotation_losses, rotation_error=rotation_errors))
 
-    return losses.avg, trans_losses.avg, rotation_losses.avg
+    return losses.avg, trans_losses.avg, scale_losses.avg, rotation_losses.avg
 
 
 def save_checkpoint(state, is_best, filename='reg_checkpoint.pth.tar'):
@@ -192,7 +203,7 @@ def save_checkpoint(state, is_best, filename='reg_checkpoint.pth.tar'):
 
 def adjust_learning_rate(optimizer, epoch):
     """Sets the learning rate to the initial LR decayed by 10 every 80 epochs"""
-    lr = 1e-4 * (0.1 ** (epoch // 50))
+    lr = 1e-3 * (0.1 ** (epoch // 10))
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
