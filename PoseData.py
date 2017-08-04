@@ -7,9 +7,11 @@ import numpy as np
 import torch
 
 
-# dataset_train.txt로 부터 image path와 pose를 꺼내옴
+# Get image path and pose from dataset_train.txt.
+# There is an invalid value in dataset_train.txt, 
+# so you have to delete it manually.
 def make_dataset(dir, train=True):
-    # 두번 읽어야 해서 비효율 적임 창현씨랑 고민해 볼 것
+    # It needs to be optimized more.
     if train:
         paths = np.genfromtxt(os.path.join(dir, 'dataset_train.txt'),
                               dtype=str, delimiter=' ', skip_header=3,
@@ -25,10 +27,9 @@ def make_dataset(dir, train=True):
                               dtype=np.float32, delimiter=' ', skip_header=3,
                               usecols=[1, 2, 3, 4, 5, 6, 7])
 
-    # order를 path의 이름순으로 정한다
+    # sort by path name
     order = paths.argsort()
 
-    # order로 sorting
     paths = paths[order]
     poses = poses[order]
 

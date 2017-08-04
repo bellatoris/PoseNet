@@ -79,3 +79,9 @@ Temporary Items
 
 # End of https://www.gitignore.io/api/pycharm,macos
 
+__pycache__
+*.tar
+dataset
+test.py
+*.tar-Res152
+*.tar-Res34

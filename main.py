@@ -18,15 +18,17 @@ from PoseNet import PoseNet
 def main():
     best_loss = 10000
     start_epoch = 0
+    # learning rate
+    lr = 1e-4
 
-    # PoseNet의 모델로 resne34을 사용
+    # use ResNet-34 for pretrained model of PoseNet
     original_model = models.resnet34(pretrained=True)
-    # PoseNet 생성
+    # make PoseNet
     model = PoseNet(original_model)
     # model.features = torch.nn.DataParallel(model.features)
     model.cuda()
 
-    # for resume code
+    # for resume code, update epoch and best loss
     # checkpoint = torch.load('model_best.pth.tar-Res34')
     # model.load_state_dict(checkpoint['state_dict'])
     # start_epoch = checkpoint['epoch']
@@ -59,7 +61,6 @@ def main():
         batch_size=75, shuffle=False,
         num_workers=8, pin_memory=True)
 
-    lr = 1e-4
     optimizer = torch.optim.Adam([{'params': model.features.parameters(), 'lr': lr},
                                   {'params': model.regressor.parameters(), 'lr': lr},
                                   {'params': model.trans_regressor.parameters(), 'lr': lr},
